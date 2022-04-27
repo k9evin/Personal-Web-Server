@@ -42,9 +42,11 @@ http_parse_request(struct http_transaction *ta)
         return false;
 
     char *request = bufio_offset2ptr(ta->client->bufio, req_offset);
+    printf("request: %s\n", request);
     request[len-2] = '\0';  // replace LF with 0 to ensure zero-termination
     char *endptr;
     char *method = strtok_r(request, " ", &endptr);
+    printf("method: %s\n", method);
     if (method == NULL)
         return false;
 
@@ -56,6 +58,7 @@ http_parse_request(struct http_transaction *ta)
         ta->req_method = HTTP_UNKNOWN;
 
     char *req_path = strtok_r(NULL, " ", &endptr);
+    printf("req_path: %s\n", req_path);
     if (req_path == NULL)
         return false;
 
