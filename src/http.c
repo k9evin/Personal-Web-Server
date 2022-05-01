@@ -42,7 +42,7 @@ http_parse_request(struct http_transaction *ta)
         return false;
 
     char *request = bufio_offset2ptr(ta->client->bufio, req_offset);
-    printf("request: %s\n", request);
+
     request[len-2] = '\0';  // replace LF with 0 to ensure zero-termination
     char *endptr;
     char *method = strtok_r(request, " ", &endptr);
@@ -110,7 +110,8 @@ http_process_headers(struct http_transaction *ta)
             field_value++;
 
         // you may print the header like so
-        // printf("Header: %s: %s\n", field_name, field_value);
+        printf("Header: %s: %s\n", field_name, field_value);
+
         if (!strcasecmp(field_name, "Content-Length")) {
             ta->req_content_len = atoi(field_value);
         }
@@ -118,6 +119,13 @@ http_process_headers(struct http_transaction *ta)
         /* Handle other headers here. Both field_value and field_name
          * are zero-terminated strings.
          */
+        if (!strcasecmp(field_name, "Cookies")) {
+            char *endptr;
+            strtok_r(field_value, "=", &endptr);
+            char *cookies = strtok_r(NULL, " \t", &endptr);
+            printf("cookie: %s\n", cookies);
+            ta->req_cookies = cookies;
+        }
     }
 }
 
@@ -153,7 +161,7 @@ add_content_length(buffer_t *res, size_t len)
 static void
 start_response(struct http_transaction * ta, buffer_t *res)
 {
-    buffer_appends(res, "HTTP/1.0 ");
+    buffer_appends(res, "HTTP/1.1 ");
 
     switch (ta->resp_status) {
     case HTTP_OK:
@@ -253,7 +261,7 @@ send_not_found(struct http_transaction *ta)
 }
 
 /* A start at assigning an appropriate mime type.  Real-world 
- * servers use more extensive lists such as /etc/mime.types
+ * servers use more extensive lists such as /etc/mime.types !
  */
 static const char *
 guess_mime_type(char *filename)
@@ -291,6 +299,9 @@ handle_static_asset(struct http_transaction *ta, char *basedir)
     // which?  Fix it to avoid indirect object reference (IDOR) attacks.
     snprintf(fname, sizeof fname, "%s%s", basedir, req_path);
 
+    if (strstr(fname, "..") != NULL)
+        return send_error(ta, HTTP_NOT_FOUND, "404 Not Found");
+        
     if (access(fname, R_OK)) {
         if (errno == EACCES)
             return send_error(ta, HTTP_PERMISSION_DENIED, "Permission denied.");
