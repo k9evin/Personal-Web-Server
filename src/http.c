@@ -35,6 +35,11 @@
 
 static const char *NEVER_EMBED_A_SECRET_IN_CODE = "supa secret";
 
+// static const characters
+static const char * const USER = "user0";
+static const char * const PASS = "thepasword";
+
+
 /* Parse HTTP request line, setting req_method, req_path, and req_version. */
 static bool
 http_parse_request(struct http_transaction *ta)
@@ -359,6 +364,42 @@ handle_api(struct http_transaction *ta)
             buffer_appends(&ta->resp_body, ta->grants);
         return send_response(ta);
     }
+    else if(ta->req_method == HTTP_POST){
+        json_error_t error;
+        jwt_t *jwt;
+        char *body = bufio_offset2ptr(ta->client->bufio, ta->req_body);
+        json_t *json_files = json_loadb(body, ta->req_content_len, 0, &error);
+        const char* username = json_string_value(json_object_get(json_files, "username"));
+        const char* password = json_string_value(json_object_get(json_files, "password"));
+
+        if (username == NULL || password == NULL || strcmp(username, USER) || strcmp(password, PASS)) {
+            return send_error(ta, HTTP_PERMISSION_DENIED, "Invalid user");
+        }
+
+        jwt_new(&jwt);
+        time_t time = time(NULL);
+        jwt_add_grant_int(jwt, "exp", time + token_expiration_time);
+        jwt_add_grant_int(jwt, "iat", time);
+        jwt_add_grant(jwt, "sub", username);
+
+        char *json = jwt_get_grants_json(jwt, NULL);
+        buffer_appends(&ta->resp_body, json);
+        jwt_set_alg(jwt, JWT_ALG_HS256, (unsigned char *)NEVER_EMBED_A_SECRET_IN_CODE, strlen(NEVER_EMBED_A_SECRET_IN_CODE));
+        
+        char * encode = jwt_encode_str(jwt);
+        ta->resp_status = HTTP_OK;
+
+        http_add_header(&ta->resp_headers, "Content-Type", "application/json");
+        http_add_header(&ta->resp_headers, "Set-Cookie", "auth_token=%s; Path=/", encode);
+    
+        return send_response(ta);
+    }
+    else{
+        ta->resp_status = HTTP_METHOD_NOT_ALLOWED;
+        send_response(ta);
+    }
+
+    return false;
 
 }
 
