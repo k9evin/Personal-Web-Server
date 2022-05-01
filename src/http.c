@@ -18,6 +18,7 @@
 #include <unistd.h>
 #include <time.h>
 #include <fcntl.h>
+#include <jwt.h>
 #include <linux/limits.h>
 
 #include "http.h"
@@ -31,6 +32,8 @@
 #define CR "\r"
 #define STARTS_WITH(field_name, header) \
     (!strncasecmp(field_name, header, sizeof(header) - 1))
+
+static const char *NEVER_EMBED_A_SECRET_IN_CODE = "supa secret";
 
 /* Parse HTTP request line, setting req_method, req_path, and req_version. */
 static bool
@@ -288,7 +291,7 @@ guess_mime_type(char *filename)
     return "text/plain";
 }
 
-/* Handle HTTP transaction for static files. */
+/* Handle HTTP transaction for static files. ! */
 static bool
 handle_static_asset(struct http_transaction *ta, char *basedir)
 {
@@ -301,10 +304,12 @@ handle_static_asset(struct http_transaction *ta, char *basedir)
 
     if (strstr(fname, "..") != NULL)
         return send_error(ta, HTTP_NOT_FOUND, "404 Not Found");
-        
+
     if (access(fname, R_OK)) {
         if (errno == EACCES)
             return send_error(ta, HTTP_PERMISSION_DENIED, "Permission denied.");
+        else if (html5_fallback)
+            return handle_html5_fallback(ta, basedir);
         else
             return send_not_found(ta);
     }
@@ -317,6 +322,8 @@ handle_static_asset(struct http_transaction *ta, char *basedir)
 
     int filefd = open(fname, O_RDONLY);
     if (filefd == -1) {
+        if (html5_fallback)
+            return handle_html5_fallback(ta, basedir);
         return send_not_found(ta);
     }
 
@@ -343,7 +350,16 @@ out:
 static bool
 handle_api(struct http_transaction *ta)
 {
-    return send_error(ta, HTTP_NOT_FOUND, "API not implemented");
+    // Handle HTTP_GET requests
+    if (ta->req_method == HTTP_GET) {
+        ta->resp_status = HTTP_OK;
+        if (ta->req_cookies == NULL)
+            buffer_appends(&ta->resp_body, "{}");
+        else
+            buffer_appends(&ta->resp_body, ta->grants);
+        return send_response(ta);
+    }
+
 }
 
 /* Set up an http client, associating it with a bufio buffer. */
@@ -396,4 +412,48 @@ http_handle_transaction(struct http_client *self)
     buffer_delete(&ta.resp_body);
 
     return rc;
+}
+
+static
+bool handle_html5_fallback(struct http_transaction *ta, char *basedir)
+{
+    char fname[PATH_MAX];
+
+    snprintf(fname, sizeof fname, "%s%s", basedir, "/index.html");
+
+    if (access(fname, R_OK)) {
+        if (errno == EACCES)
+            return send_error(ta, HTTP_PERMISSION_DENIED, "Permission denied.");
+        else
+            return send_not_found(ta);
+    }
+
+    // Determine file size
+    struct stat st;
+    int rc = stat(fname, &st);
+    if (rc == -1)
+        return send_error(ta, HTTP_INTERNAL_ERROR, "Could not stat file.");
+
+    int filefd = open(fname, O_RDONLY);
+    if (filefd == -1)
+        return send_not_found(ta);
+
+    ta->resp_status = HTTP_OK;
+    http_add_header(&ta->resp_headers, "Content-Type", "%s", guess_mime_type(fname));
+    off_t from = 0, to = st.st_size - 1;
+
+    off_t content_length = to + 1 - from;
+    add_content_length(&ta->resp_headers, content_length);
+
+    bool success = send_response_header(ta);
+    if (!success)
+        goto out;
+
+    // sendfile may send fewer bytes than requested, hence the loop
+    while (success && from <= to)
+        success = bufio_sendfile(ta->client->bufio, filefd, &from, to + 1 - from) > 0;
+
+out: 
+    close(filefd);
+    return success;
 }
