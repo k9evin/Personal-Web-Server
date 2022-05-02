@@ -125,12 +125,15 @@ http_process_headers(struct http_transaction *ta)
         /* Handle other headers here. Both field_value and field_name
          * are zero-terminated strings.
          */
-        if (!strcasecmp(field_name, "Cookies")) {
+        if (!strcasecmp(field_name, "Cookie")) {
             char *endptr;
             strtok_r(field_value, "=", &endptr);
-            char *cookies = strtok_r(NULL, " \t", &endptr);
-            printf("cookie: %s\n", cookies);
-            ta->req_cookies = cookies;
+            printf("field_value: %s\n", field_value);
+            if (!strcmp(field_value, "auth_token")) {
+                char *cookies = strtok_r(NULL, " \t", &endptr);
+                printf("cookie: %s\n", cookies);
+                ta->req_cookies = cookies;
+            }
         }
     }
 }
@@ -368,6 +371,7 @@ handle_api(struct http_transaction *ta)
         ta->resp_status = HTTP_OK;
 
         if (!validate_token(ta)) {
+            printf("Invalid token\n");
             buffer_appends(&ta->resp_body, "{}");
             http_add_header(&ta->resp_headers, "Content-Type", "application/json");
         } else {
@@ -383,7 +387,7 @@ handle_api(struct http_transaction *ta)
                 jwt_perror("jwt_get_grants_json");
 
             buffer_appends(&ta->resp_body, grants);
-            
+            http_add_header(&ta->resp_headers, "Content-Type", "application/json");
         }
         return send_response(ta);
     }
@@ -428,8 +432,8 @@ handle_api(struct http_transaction *ta)
         if (grants == NULL)
             jwt_perror("jwt_get_grants_json");
 
-        http_add_header(&ta->resp_headers, "Content-Type", "application/json");
         http_add_header(&ta->resp_headers, "Set-Cookie", "auth_token=%s; Path=/", encoded);
+        http_add_header(&ta->resp_headers, "Content-Type", "application/json");
         buffer_appends(&ta->resp_body, grants);
 
         return send_response(ta);
@@ -559,8 +563,10 @@ static
 bool validate_token(struct http_transaction *ta) {
     jwt_t *mytoken;
 
+    printf("validate_token: token: %s\n", ta->req_cookies);
+
     if (ta->req_cookies == NULL) {
-        // printf("No cookies.\n");
+        printf("No cookies.\n");
         return false;
     }
     
@@ -568,6 +574,7 @@ bool validate_token(struct http_transaction *ta) {
     if (jwt_decode(&mytoken, ta->req_cookies,
                    (unsigned char *)NEVER_EMBED_A_SECRET_IN_CODE,
                    strlen(NEVER_EMBED_A_SECRET_IN_CODE)) != 0) {
+        printf("Could not decode token.\n");
         return false;
     }
 
@@ -575,16 +582,18 @@ bool validate_token(struct http_transaction *ta) {
     if (grants == NULL)
         jwt_perror("jwt_get_grants_json");
 
+    printf("%s\n", grants);
+
     time_t now = time(NULL);
     int exp = jwt_get_grant_int(mytoken, "exp");
     if (exp < now) {
         return false;
     }
 
-    int iat = jwt_get_grant_int(mytoken, "iat");
-    if (iat > now) {
-        return false;
-    }
+    // int iat = jwt_get_grant_int(mytoken, "iat");
+    // if (iat > now) {
+    //     return false;
+    // }
 
     const char *sub = jwt_get_grant(mytoken, "sub");
     if (strcmp(sub, "user0") != 0) {
