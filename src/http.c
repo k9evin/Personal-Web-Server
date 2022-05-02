@@ -36,10 +36,12 @@
 
 static const char *NEVER_EMBED_A_SECRET_IN_CODE = "supa secret";
 
+static bool handle_html5_fallback(struct http_transaction *ta, char *basedir);
+static bool validate_token(struct http_transaction *ta);
+bool http_keep_alive(struct http_client *self);
+
 /* Parse HTTP request line, setting req_method, req_path, and req_version. */
-static bool
-http_parse_request(struct http_transaction *ta)
-{
+static bool http_parse_request(struct http_transaction *ta) {
     size_t req_offset;
     ssize_t len = bufio_readline(ta->client->bufio, &req_offset);
     if (len < 2)       // error, EOF, or less than 2 characters
@@ -303,8 +305,11 @@ handle_static_asset(struct http_transaction *ta, char *basedir)
     // which?  Fix it to avoid indirect object reference (IDOR) attacks.
     snprintf(fname, sizeof fname, "%s%s", basedir, req_path);
 
-    if (strstr(fname, "..") != NULL)
-        return send_error(ta, HTTP_NOT_FOUND, "404 Not Found");
+    // if (!strstr(fname, "..")) {
+    //     printf("IDOR attack detected!\n");
+    //     printf("%s\n", fname);
+    //     return send_error(ta, HTTP_NOT_FOUND, "404 Not Found");
+    // }
 
     if (access(fname, R_OK)) {
         if (errno == EACCES)
@@ -472,11 +477,25 @@ http_handle_transaction(struct http_client *self)
 
     bool rc = false;
     char *req_path = bufio_offset2ptr(ta.client->bufio, ta.req_path);
+
+    if (strstr(req_path, "../") != NULL || strstr(req_path, "/..") != NULL) {
+        return send_error(&ta, HTTP_NOT_FOUND, "NOT FOUND");
+    }
+
     if (STARTS_WITH(req_path, "/api")) {
-        rc = handle_api(&ta);
-    } else
-    if (STARTS_WITH(req_path, "/private")) {
-        /* not implemented */
+        if (strcmp(req_path, "/api/login") == 0)
+            rc = handle_api(&ta);
+        else
+            return send_error(&ta, HTTP_NOT_FOUND, "Not found.");
+    } 
+    else if (STARTS_WITH(req_path, "/private")) {
+        if (ta.req_method == HTTP_POST || ta.req_method == HTTP_UNKNOWN)
+            return send_error(&ta, HTTP_METHOD_NOT_ALLOWED, "Method not allowed.");
+        
+        if (!validate_token(&ta))
+            return send_error(&ta, HTTP_PERMISSION_DENIED, "Permission denied."); // !
+        else
+            rc = handle_static_asset(&ta, server_root);
     } else {
         rc = handle_static_asset(&ta, server_root);
     }
@@ -484,7 +503,7 @@ http_handle_transaction(struct http_client *self)
     buffer_delete(&ta.resp_headers);
     buffer_delete(&ta.resp_body);
 
-    return rc;
+    return rc && !(ta.req_version == HTTP_1_0);
 }
 
 static
@@ -559,10 +578,16 @@ bool validate_token(struct http_transaction *ta) {
         return false;
     }
 
-    char *sub = jwt_get_grant_str(mytoken, "sub");
+    const char *sub = jwt_get_grant(mytoken, "sub");
     if (strcmp(sub, "user0") != 0) {
         return false;
     }
 
+    return true;
+}
+
+bool
+http_keep_alive(struct http_client *self) {
+    while (http_handle_transaction(self)) {}
     return true;
 }
