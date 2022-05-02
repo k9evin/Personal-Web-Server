@@ -369,6 +369,7 @@ handle_api(struct http_transaction *ta)
 
         if (!validate_token(ta)) {
             buffer_appends(&ta->resp_body, "{}");
+            http_add_header(&ta->resp_headers, "Content-Type", "application/json");
         } else {
             jwt_t *mytoken;
             if (jwt_decode(&mytoken, ta->req_cookies,
@@ -382,6 +383,7 @@ handle_api(struct http_transaction *ta)
                 jwt_perror("jwt_get_grants_json");
 
             buffer_appends(&ta->resp_body, grants);
+            
         }
         return send_response(ta);
     }
@@ -394,7 +396,7 @@ handle_api(struct http_transaction *ta)
         const char* password = json_string_value(json_object_get(json_files, "password"));
 
         if (username == NULL || password == NULL || 
-            strcmp(username, "user0") || strcmp(password, "password0")) {
+            strcmp(username, "user0") || strcmp(password, "thepassword")) {
             return send_error(ta, HTTP_PERMISSION_DENIED, "Permission denied.");
         }
 
@@ -492,10 +494,13 @@ http_handle_transaction(struct http_client *self)
         if (ta.req_method == HTTP_POST || ta.req_method == HTTP_UNKNOWN)
             return send_error(&ta, HTTP_METHOD_NOT_ALLOWED, "Method not allowed.");
         
-        if (!validate_token(&ta))
+        if (!validate_token(&ta)) {
+            printf("Not authorized.\n");
             return send_error(&ta, HTTP_PERMISSION_DENIED, "Permission denied."); // !
-        else
+        }
+        else {
             rc = handle_static_asset(&ta, server_root);
+        }
     } else {
         rc = handle_static_asset(&ta, server_root);
     }
@@ -554,8 +559,11 @@ static
 bool validate_token(struct http_transaction *ta) {
     jwt_t *mytoken;
 
-    if (ta->req_cookies == NULL)
+    if (ta->req_cookies == NULL) {
+        // printf("No cookies.\n");
         return false;
+    }
+    
 
     if (jwt_decode(&mytoken, ta->req_cookies,
                    (unsigned char *)NEVER_EMBED_A_SECRET_IN_CODE,
