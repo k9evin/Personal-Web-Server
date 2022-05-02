@@ -7,25 +7,26 @@
  *
  * @author G. Back for CS 3214 Spring 2018
  */
-#include <sys/types.h>
+#include "http.h"
+
+#include <errno.h>
+#include <fcntl.h>
+#include <jansson.h>
+#include <linux/limits.h>
+#include <stdarg.h>
+#include <stdbool.h>
+#include <stdio.h>
+#include <string.h>
 #include <sys/socket.h>
 #include <sys/stat.h>
-#include <string.h>
-#include <stdarg.h>
-#include <stdio.h>
-#include <stdbool.h>
-#include <errno.h>
-#include <unistd.h>
+#include <sys/types.h>
 #include <time.h>
-#include <fcntl.h>
-#include <jwt.h>
-#include <linux/limits.h>
+#include <unistd.h>
 
-#include "http.h"
-#include "hexdump.h"
-#include "socket.h"
 #include "bufio.h"
+#include "hexdump.h"
 #include "main.h"
+#include "socket.h"
 
 // Need macros here because of the sizeof
 #define CRLF "\r\n"
@@ -34,11 +35,6 @@
     (!strncasecmp(field_name, header, sizeof(header) - 1))
 
 static const char *NEVER_EMBED_A_SECRET_IN_CODE = "supa secret";
-
-// static const characters
-static const char * const USER = "user0";
-static const char * const PASS = "thepasword";
-
 
 /* Parse HTTP request line, setting req_method, req_path, and req_version. */
 static bool
@@ -352,46 +348,83 @@ out:
     return success;
 }
 
+static void
+jwt_perror(const char *msg) {
+    perror(msg);
+    exit(EXIT_FAILURE);
+}
+
 static bool
 handle_api(struct http_transaction *ta)
 {
     // Handle HTTP_GET requests
     if (ta->req_method == HTTP_GET) {
+
         ta->resp_status = HTTP_OK;
-        if (ta->req_cookies == NULL)
+
+        if (!validate_token(ta)) {
             buffer_appends(&ta->resp_body, "{}");
-        else
-            buffer_appends(&ta->resp_body, ta->grants);
+        } else {
+            jwt_t *mytoken;
+            if (jwt_decode(&mytoken, ta->req_cookies,
+                    (unsigned char *)NEVER_EMBED_A_SECRET_IN_CODE,
+                    strlen(NEVER_EMBED_A_SECRET_IN_CODE))) {
+                jwt_perror("jwt_decode");
+            }
+
+            char *grants = jwt_get_grants_json(mytoken, NULL);
+            if (grants == NULL)
+                jwt_perror("jwt_get_grants_json");
+
+            buffer_appends(&ta->resp_body, grants);
+        }
         return send_response(ta);
     }
-    else if(ta->req_method == HTTP_POST){
+    else if (ta->req_method == HTTP_POST) {
         json_error_t error;
-        jwt_t *jwt;
-        char *body = bufio_offset2ptr(ta->client->bufio, ta->req_body);
-        json_t *json_files = json_loadb(body, ta->req_content_len, 0, &error);
+        jwt_t *token;
+        char *req_body = bufio_offset2ptr(ta->client->bufio, ta->req_body);
+        json_t *json_files = json_loadb(req_body, ta->req_content_len, 0, &error);
         const char* username = json_string_value(json_object_get(json_files, "username"));
         const char* password = json_string_value(json_object_get(json_files, "password"));
 
-        if (username == NULL || password == NULL || strcmp(username, USER) || strcmp(password, PASS)) {
-            return send_error(ta, HTTP_PERMISSION_DENIED, "Invalid user");
+        if (username == NULL || password == NULL || 
+            strcmp(username, "user0") || strcmp(password, "password0")) {
+            return send_error(ta, HTTP_PERMISSION_DENIED, "Permission denied.");
         }
 
-        jwt_new(&jwt);
-        time_t time = time(NULL);
-        jwt_add_grant_int(jwt, "exp", time + token_expiration_time);
-        jwt_add_grant_int(jwt, "iat", time);
-        jwt_add_grant(jwt, "sub", username);
+        if (jwt_new(&token))
+            jwt_perror("jwt_new");
 
-        char *json = jwt_get_grants_json(jwt, NULL);
-        buffer_appends(&ta->resp_body, json);
-        jwt_set_alg(jwt, JWT_ALG_HS256, (unsigned char *)NEVER_EMBED_A_SECRET_IN_CODE, strlen(NEVER_EMBED_A_SECRET_IN_CODE));
+        if (jwt_add_grant(token, "sub", "user0"))
+            jwt_perror("jwt_add_grant sub");
+
+        time_t now = time(NULL);
+        if (jwt_add_grant_int(token, "iat", now))
+            jwt_perror("jwt_add_grant iat");
         
-        char * encode = jwt_encode_str(jwt);
+        if (jwt_add_grant_int(token, "exp", now + token_expiration_time))
+            jwt_perror("jwt_add_grant exp");
+
+        if (jwt_set_alg(token, JWT_ALG_HS256,
+                    (unsigned char *)NEVER_EMBED_A_SECRET_IN_CODE,
+                    strlen(NEVER_EMBED_A_SECRET_IN_CODE)))
+            jwt_perror("jwt_set_alg");
+
+        char *encoded = jwt_encode_str(token);
+        if (encoded == NULL)
+            jwt_perror("jwt_encode_str");
+
         ta->resp_status = HTTP_OK;
 
+        char *grants = jwt_get_grants_json(token, NULL);
+        if (grants == NULL)
+            jwt_perror("jwt_get_grants_json");
+
         http_add_header(&ta->resp_headers, "Content-Type", "application/json");
-        http_add_header(&ta->resp_headers, "Set-Cookie", "auth_token=%s; Path=/", encode);
-    
+        http_add_header(&ta->resp_headers, "Set-Cookie", "auth_token=%s; Path=/", encoded);
+        buffer_appends(&ta->resp_body, grants);
+
         return send_response(ta);
     }
     else{
@@ -400,7 +433,6 @@ handle_api(struct http_transaction *ta)
     }
 
     return false;
-
 }
 
 /* Set up an http client, associating it with a bufio buffer. */
@@ -497,4 +529,40 @@ bool handle_html5_fallback(struct http_transaction *ta, char *basedir)
 out: 
     close(filefd);
     return success;
+}
+
+static
+bool validate_token(struct http_transaction *ta) {
+    jwt_t *mytoken;
+
+    if (ta->req_cookies == NULL)
+        return false;
+
+    if (jwt_decode(&mytoken, ta->req_cookies,
+                   (unsigned char *)NEVER_EMBED_A_SECRET_IN_CODE,
+                   strlen(NEVER_EMBED_A_SECRET_IN_CODE)) != 0) {
+        return false;
+    }
+
+    char *grants = jwt_get_grants_json(mytoken, NULL);
+    if (grants == NULL)
+        jwt_perror("jwt_get_grants_json");
+
+    time_t now = time(NULL);
+    int exp = jwt_get_grant_int(mytoken, "exp");
+    if (exp < now) {
+        return false;
+    }
+
+    int iat = jwt_get_grant_int(mytoken, "iat");
+    if (iat > now) {
+        return false;
+    }
+
+    char *sub = jwt_get_grant_str(mytoken, "sub");
+    if (strcmp(sub, "user0") != 0) {
+        return false;
+    }
+
+    return true;
 }
