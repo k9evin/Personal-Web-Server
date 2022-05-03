@@ -52,7 +52,7 @@ static bool http_parse_request(struct http_transaction *ta) {
     request[len-2] = '\0';  // replace LF with 0 to ensure zero-termination
     char *endptr;
     char *method = strtok_r(request, " ", &endptr);
-    printf("method: %s\n", method);
+    //printf("method: %s\n", method);
     if (method == NULL)
         return false;
 
@@ -64,7 +64,7 @@ static bool http_parse_request(struct http_transaction *ta) {
         ta->req_method = HTTP_UNKNOWN;
 
     char *req_path = strtok_r(NULL, " ", &endptr);
-    printf("req_path: %s\n", req_path);
+    //printf("req_path: %s\n", req_path);
     if (req_path == NULL)
         return false;
 
@@ -116,7 +116,7 @@ http_process_headers(struct http_transaction *ta)
             field_value++;
 
         // you may print the header like so
-        printf("Header: %s: %s\n", field_name, field_value);
+        //printf("Header: %s: %s\n", field_name, field_value);
 
         if (!strcasecmp(field_name, "Content-Length")) {
             ta->req_content_len = atoi(field_value);
@@ -127,12 +127,20 @@ http_process_headers(struct http_transaction *ta)
          */
         if (!strcasecmp(field_name, "Cookie")) {
             char *endptr;
-            strtok_r(field_value, "=", &endptr);
-            printf("field_value: %s\n", field_value);
-            if (!strcmp(field_value, "auth_token")) {
-                char *cookies = strtok_r(NULL, " \t", &endptr);
-                printf("cookie: %s\n", cookies);
-                ta->req_cookies = cookies;
+            //printf("endptr: %s\n", endptr);
+
+            char *token;
+            while ((token = strtok_r(field_value, "; ", &field_value))) {
+                printf("field_value: %s\n", token);
+                strtok_r(token, "=", &endptr);
+                printf("field_value: %s\n", token);
+                if (!strcmp(token, "auth_token")) {
+                    // char *cookies = strtok_r(NULL, " \t", &endptr);
+                    char *cookies = strtok_r(NULL, "; ", &endptr);
+                    printf("cookie: %s\n", cookies);
+                    ta->req_cookies = cookies;
+                    break;
+                }
             }
         }
     }
@@ -314,7 +322,7 @@ handle_static_asset(struct http_transaction *ta, char *basedir)
     //     return send_error(ta, HTTP_NOT_FOUND, "404 Not Found");
     // }
 
-    if (access(fname, R_OK)) {
+    if (access(fname, R_OK) || !req_path ||!strcmp(req_path, "/")) {
         if (errno == EACCES)
             return send_error(ta, HTTP_PERMISSION_DENIED, "Permission denied.");
         else if (html5_fallback)
@@ -366,6 +374,7 @@ static bool
 handle_api(struct http_transaction *ta)
 {
     // Handle HTTP_GET requests
+
     if (ta->req_method == HTTP_GET) {
 
         ta->resp_status = HTTP_OK;
@@ -563,10 +572,10 @@ static
 bool validate_token(struct http_transaction *ta) {
     jwt_t *mytoken;
 
-    printf("validate_token: token: %s\n", ta->req_cookies);
+    // printf("validate_token: token: %s\n", ta->req_cookies);
 
     if (ta->req_cookies == NULL) {
-        printf("No cookies.\n");
+        // printf("No cookies.\n");
         return false;
     }
     
