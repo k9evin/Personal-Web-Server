@@ -116,7 +116,7 @@ http_process_headers(struct http_transaction *ta) {
             field_value++;
 
         // you may print the header like so
-        printf("%s: %s\n", field_name, field_value);
+        // printf("%s: %s\n", field_name, field_value);
 
         if (!strcasecmp(field_name, "Content-Length")) {
             ta->req_content_len = atoi(field_value);
@@ -140,24 +140,16 @@ http_process_headers(struct http_transaction *ta) {
         }
 
         // Handle range request
+        // Handle range request
         if (!strcasecmp(field_name, "Range")) {
             char *endptr;
             char *token;
 
             token = strtok_r(field_value, ": ", &endptr);
-            if (token == NULL)
-                return false;
-
-            if (strtok_r(token, "=", &endptr) == NULL) {
-                return false;
-            }
-
-            printf("token: %s\n", token);
-
+            strtok_r(token, "=", &endptr);
             if (!strcmp(token, "bytes")) {
                 char *start = strtok_r(NULL, "-", &endptr);
                 char *end = strtok_r(NULL, " ", &endptr);
-
                 ta->req_start = atoi(start);
                 if (end != NULL)
                     ta->req_end = atoi(end);
@@ -166,8 +158,8 @@ http_process_headers(struct http_transaction *ta) {
 
                 ta->req_range = true;
             }
-            
         }
+
     }
 }
 
