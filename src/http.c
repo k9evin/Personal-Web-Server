@@ -420,6 +420,7 @@ handle_api(struct http_transaction *ta)
         const char* username = json_string_value(json_object_get(json_files, "username"));
         const char* password = json_string_value(json_object_get(json_files, "password"));
 
+        // If the username and password does not match, return 403 Forbidden
         if (username == NULL || password == NULL || 
             strcmp(username, "user0") || strcmp(password, "thepassword")) {
             return send_error(ta, HTTP_PERMISSION_DENIED, "Permission denied.");
@@ -428,16 +429,20 @@ handle_api(struct http_transaction *ta)
         if (jwt_new(&token))
             jwt_perror("jwt_new");
 
+        // sub describes which the server will recognize the bearer of the claim 
         if (jwt_add_grant(token, "sub", "user0"))
             jwt_perror("jwt_add_grant sub");
 
         time_t now = time(NULL);
+        // iat is the time at which the claim was issued, inc seconds since Jan 1, 1970
         if (jwt_add_grant_int(token, "iat", now))
             jwt_perror("jwt_add_grant iat");
         
+        // exp is the time at which the claim will expire
         if (jwt_add_grant_int(token, "exp", now + token_expiration_time))
             jwt_perror("jwt_add_grant exp");
 
+        //  The signature is obtained in the form of a JSON Web Token
         if (jwt_set_alg(token, JWT_ALG_HS256,
                     (unsigned char *)NEVER_EMBED_A_SECRET_IN_CODE,
                     strlen(NEVER_EMBED_A_SECRET_IN_CODE)))
@@ -453,6 +458,7 @@ handle_api(struct http_transaction *ta)
         if (grants == NULL)
             jwt_perror("jwt_get_grants_json");
 
+        // Follow the format of the Set-Cookie header, and choose a name for the cookie 
         http_add_header(&ta->resp_headers, "Set-Cookie", "auth_token=%s; Path=/", encoded);
         http_add_header(&ta->resp_headers, "Content-Type", "application/json");
         buffer_appends(&ta->resp_body, grants);
