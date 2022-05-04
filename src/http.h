@@ -52,6 +52,7 @@ struct http_transaction {
 
     int req_start;
     int req_end;
+    bool req_range;
 };
 
 struct http_client {
