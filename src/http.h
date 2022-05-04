@@ -49,6 +49,9 @@ struct http_transaction {
     char *req_cookies;
     struct http_client *client;
     char *grants;
+
+    int req_start;
+    int req_end;
 };
 
 struct http_client {
