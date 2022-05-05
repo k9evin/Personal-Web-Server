@@ -140,7 +140,6 @@ http_process_headers(struct http_transaction *ta) {
         }
 
         // Handle range request
-        // Handle range request
         if (!strcasecmp(field_name, "Range")) {
             char *endptr;
             char *token;
@@ -159,7 +158,6 @@ http_process_headers(struct http_transaction *ta) {
                 ta->req_range = true;
             }
         }
-
     }
 }
 
@@ -313,6 +311,12 @@ guess_mime_type(char *filename) {
     if (!strcasecmp(suffix, ".mp4"))
         return "video/mp4";
 
+    if (!strcasecmp(suffix, ".svg"))
+        return "image/svg+xml";
+
+    if (!strcasecmp(suffix, ".css"))
+        return "text/css";
+
     return "text/plain";
 }
 
@@ -329,13 +333,12 @@ handle_static_asset(struct http_transaction *ta, char *basedir) {
     if (!req_path || !strcmp(req_path, "/"))
         return handle_html5_fallback(ta, basedir);
 
-
     if (access(fname, R_OK)) {
         if (errno == EACCES)
             return send_error(ta, HTTP_PERMISSION_DENIED, "Permission denied.");
         else if (html5_fallback)
             return handle_html5_fallback(ta, basedir);
-        else 
+        else
             return send_not_found(ta);
     }
 
@@ -352,7 +355,6 @@ handle_static_asset(struct http_transaction *ta, char *basedir) {
         return send_not_found(ta);
     }
 
-    
     http_add_header(&ta->resp_headers, "Content-Type", "%s", guess_mime_type(fname));
     http_add_header(&ta->resp_headers, "Accept-Ranges", "bytes");
     bool success;
@@ -363,7 +365,6 @@ handle_static_asset(struct http_transaction *ta, char *basedir) {
 
         off_t content_length = to + 1 - from;
         add_content_length(&ta->resp_headers, content_length);
-        
 
         success = send_response_header(ta);
         if (!success)
@@ -382,7 +383,6 @@ handle_static_asset(struct http_transaction *ta, char *basedir) {
         else
             from = ta->req_start, to = ta->req_end;
 
-
         http_add_header(&ta->resp_headers, "Content-Range", "bytes %lld-%lld/%lld",
                         (long long)from, (long long)to, (long long)st.st_size);
 
@@ -400,18 +400,18 @@ handle_static_asset(struct http_transaction *ta, char *basedir) {
 out:
     close(filefd);
     return success;
-    // return false; //!
 }
 
+/* Send a jwt error response. */
 static void
 jwt_perror(const char *msg) {
     perror(msg);
     exit(EXIT_FAILURE);
 }
 
+/* Handle the api/video request. */
 static bool
 handle_video(struct http_transaction *ta, char *basedir) {
-    // Use the opendir and readdir calls to list all mp4 files in the server’s root directory
     DIR *dir;
     struct dirent *entry;
     char fname[PATH_MAX];
@@ -428,7 +428,6 @@ handle_video(struct http_transaction *ta, char *basedir) {
             if (strstr(entry->d_name, ".mp4") != NULL) {
                 json_t *obj = json_object();
 
-                // get the size of the file, and print it
                 snprintf(fname, sizeof fname, "%s/%s", basedir, entry->d_name);
 
                 struct stat st;
@@ -456,10 +455,9 @@ handle_video(struct http_transaction *ta, char *basedir) {
     return false;
 }
 
+/* Handle the api/login request. */
 static bool
 handle_api(struct http_transaction *ta) {
-    // Handle HTTP_GET requests
-
     if (ta->req_method == HTTP_GET) {
         ta->resp_status = HTTP_OK;
 
@@ -538,7 +536,6 @@ handle_api(struct http_transaction *ta) {
         ta->resp_status = HTTP_METHOD_NOT_ALLOWED;
         send_response(ta);
     }
-
     return false;
 }
 
@@ -591,11 +588,10 @@ bool http_handle_transaction(struct http_client *self) {
         if (ta.req_method == HTTP_POST || ta.req_method == HTTP_UNKNOWN)
             return send_error(&ta, HTTP_METHOD_NOT_ALLOWED, "Method not allowed.");
 
-        if (!validate_token(&ta)) {
-            return send_error(&ta, HTTP_PERMISSION_DENIED, "Permission denied.");  // !
-        } else {
+        if (!validate_token(&ta))
+            return send_error(&ta, HTTP_PERMISSION_DENIED, "Permission denied.");
+        else
             rc = handle_static_asset(&ta, server_root);
-        }
     } else {
         rc = handle_static_asset(&ta, server_root);
     }
@@ -606,6 +602,7 @@ bool http_handle_transaction(struct http_client *self) {
     return rc && !(ta.req_version == HTTP_1_0);
 }
 
+/* Handle html fallback, return to the home page */
 static bool handle_html5_fallback(struct http_transaction *ta, char *basedir) {
     char fname[PATH_MAX];
 
@@ -648,17 +645,17 @@ out:
     return success;
 }
 
+/* Helper function that checks if the token is valid */
 static bool validate_token(struct http_transaction *ta) {
     jwt_t *mytoken;
 
-    if (ta->req_cookies == NULL) 
+    if (ta->req_cookies == NULL)
         return false;
 
     if (jwt_decode(&mytoken, ta->req_cookies,
                    (unsigned char *)NEVER_EMBED_A_SECRET_IN_CODE,
-                   strlen(NEVER_EMBED_A_SECRET_IN_CODE)) != 0) {
+                   strlen(NEVER_EMBED_A_SECRET_IN_CODE)) != 0)
         return false;
-    }
 
     char *grants = jwt_get_grants_json(mytoken, NULL);
     if (grants == NULL)
@@ -666,24 +663,20 @@ static bool validate_token(struct http_transaction *ta) {
 
     time_t now = time(NULL);
     int exp = jwt_get_grant_int(mytoken, "exp");
-    if (exp < now) {
+    if (exp < now)
         return false;
-    }
-
-    // int iat = jwt_get_grant_int(mytoken, "iat");
-    // if (iat > now) {
-    //     return false;
-    // }
 
     const char *sub = jwt_get_grant(mytoken, "sub");
-    if (strcmp(sub, "user0") != 0) {
+    if (strcmp(sub, "user0") != 0)
         return false;
-    }
 
     return true;
 }
 
+/* Helper function to keep the http1.1 connection alive */
 bool http_keep_alive(struct http_client *self) {
+    // The while loop will keep the connection alive until the client
+    // sends a request that is not a keep-alive request.
     while (http_handle_transaction(self)) {
     }
     return true;
