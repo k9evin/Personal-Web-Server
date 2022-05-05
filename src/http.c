@@ -7,8 +7,6 @@
  *
  * @author G. Back for CS 3214 Spring 2018
  */
-#include "http.h"
-
 #include <dirent.h>
 #include <errno.h>
 #include <fcntl.h>
@@ -24,6 +22,7 @@
 #include <time.h>
 #include <unistd.h>
 
+#include "http.h"
 #include "bufio.h"
 #include "hexdump.h"
 #include "main.h"
@@ -35,6 +34,7 @@
 #define STARTS_WITH(field_name, header) \
     (!strncasecmp(field_name, header, sizeof(header) - 1))
 
+// The secret massage
 static const char *NEVER_EMBED_A_SECRET_IN_CODE = "supa secret";
 
 static bool handle_html5_fallback(struct http_transaction *ta, char *basedir);
@@ -469,13 +469,15 @@ handle_video(struct http_transaction *ta, char *basedir) {
 /* Handle the api/login request. */
 static bool
 handle_api(struct http_transaction *ta) {
+    // If it is a GET request
     if (ta->req_method == HTTP_GET) {
         ta->resp_status = HTTP_OK;
-
+        // Check if the token is validate, returns an empty object {}.
         if (!validate_token(ta)) {
             buffer_appends(&ta->resp_body, "{}");
             http_add_header(&ta->resp_headers, "Content-Type", "application/json");
         } else {
+            // Else, return the claims the client presented in its request as a json object if the user is authenticated.
             jwt_t *mytoken;
             if (jwt_decode(&mytoken, ta->req_cookies,
                            (unsigned char *)NEVER_EMBED_A_SECRET_IN_CODE,
@@ -483,6 +485,7 @@ handle_api(struct http_transaction *ta) {
                 jwt_perror("jwt_decode");
             }
 
+            // If grants is NULL, return an error message
             char *grants = jwt_get_grants_json(mytoken, NULL);
             if (grants == NULL)
                 jwt_perror("jwt_get_grants_json");
@@ -491,6 +494,7 @@ handle_api(struct http_transaction *ta) {
             http_add_header(&ta->resp_headers, "Content-Type", "application/json");
         }
         return send_response(ta);
+        // Else if it is a POST request
     } else if (ta->req_method == HTTP_POST) {
         json_error_t error;
         jwt_t *token;
@@ -528,6 +532,7 @@ handle_api(struct http_transaction *ta) {
             jwt_perror("jwt_set_alg");
 
         char *encoded = jwt_encode_str(token);
+        // If the encoded token is NULL, return an error message
         if (encoded == NULL)
             jwt_perror("jwt_encode_str");
 
@@ -544,6 +549,7 @@ handle_api(struct http_transaction *ta) {
 
         return send_response(ta);
     } else {
+        // Else set the response status to 405 Method Not Allowed
         ta->resp_status = HTTP_METHOD_NOT_ALLOWED;
         send_response(ta);
     }
@@ -659,10 +665,11 @@ out:
 /* Helper function that checks if the token is valid */
 static bool validate_token(struct http_transaction *ta) {
     jwt_t *mytoken;
-
+    // If the request cookies is NULL, return false
     if (ta->req_cookies == NULL)
         return false;
-
+    
+    // Return false if the length of secret massage is not equal to 0
     if (jwt_decode(&mytoken, ta->req_cookies,
                    (unsigned char *)NEVER_EMBED_A_SECRET_IN_CODE,
                    strlen(NEVER_EMBED_A_SECRET_IN_CODE)) != 0)
@@ -672,11 +679,13 @@ static bool validate_token(struct http_transaction *ta) {
     if (grants == NULL)
         jwt_perror("jwt_get_grants_json");
 
+    // If the token is expired, return false
     time_t now = time(NULL);
     int exp = jwt_get_grant_int(mytoken, "exp");
     if (exp < now)
         return false;
 
+    // If the signature is invalid, return false
     const char *sub = jwt_get_grant(mytoken, "sub");
     if (strcmp(sub, "user0") != 0)
         return false;
