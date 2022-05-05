@@ -131,7 +131,7 @@ int main(int ac, char *av[]) {
 
     fprintf(stderr, "Using port %s\n", port_string);
 
-    sem_init(&queue, 0, 4096);
+    sem_init(&queue, 0, 10000);
     server_loop(port_string);
     sem_destroy(&queue);
 

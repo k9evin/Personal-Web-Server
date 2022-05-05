@@ -2,8 +2,8 @@ DEP_BASE_DIR=../deps
 DEP_INCLUDE_DIR=$(DEP_BASE_DIR)/include
 DEP_LIB_DIR=$(abspath $(DEP_BASE_DIR)/lib)
 
-# CFLAGS=-g -O2 -pthread -Wall -Werror -Wmissing-prototypes -I$(DEP_INCLUDE_DIR)
-CFLAGS=-g -O0 -pthread -Wall -Werror -Wmissing-prototypes -I$(DEP_INCLUDE_DIR)
+CFLAGS=-g -O2 -pthread -Wall -Werror -Wmissing-prototypes -I$(DEP_INCLUDE_DIR)
+# CFLAGS=-g -O0 -pthread -Wall -Werror -Wmissing-prototypes -I$(DEP_INCLUDE_DIR)
 
 # include lib directory into runtime path to facilitate dynamic linking
 LDFLAGS=-pthread -Wl,-rpath -Wl,$(DEP_LIB_DIR)

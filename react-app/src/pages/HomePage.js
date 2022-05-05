@@ -7,7 +7,11 @@ import cs3214 from '../images/cs3214.png';
 let HomePage = (props) => (
   <Container>
     <Row>
+<<<<<<< HEAD
       <h1>CS3214 Demo App - by jiayuelin for ex5</h1>
+=======
+      <h1>CS3214 Demo App - by pangmin for ex5</h1>
+>>>>>>> 80701a8f7c4227457bfea66713f556576e754548
     </Row>
     <Row>
       <Col>
