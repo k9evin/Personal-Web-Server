@@ -145,14 +145,19 @@ http_process_headers(struct http_transaction *ta) {
             char *token;
 
             token = strtok_r(field_value, ": ", &endptr);
+            // If the token is NULL, return false
             if (token == NULL)
                 return false;
+            // Use strtok_r to split a string by a delimiter
             strtok_r(token, "=", &endptr);
+            // If the token is not equal to bytes
             if (!strcmp(token, "bytes")) {
                 char *start = strtok_r(NULL, "-", &endptr);
                 char *end = strtok_r(NULL, " ", &endptr);
+                // If the start is not NULL, the request start is set to start
                 if (start != NULL)
                     ta->req_start = atoi(start);
+                // Else set to -1
                 else
                     ta->req_start = -1;
 
@@ -160,7 +165,8 @@ http_process_headers(struct http_transaction *ta) {
                     ta->req_end = atoi(end);
                 else
                     ta->req_end = -1;
-
+                
+                // Set the request range to be true
                 ta->req_range = true;
             }
         }
@@ -625,9 +631,12 @@ static bool handle_html5_fallback(struct http_transaction *ta, char *basedir) {
 
     snprintf(fname, sizeof fname, "%s%s", basedir, "/index.html");
 
+    // If the access of file name is granted
     if (access(fname, R_OK)) {
+        // if errno == EACCES, return an error message says permission denied
         if (errno == EACCES)
             return send_error(ta, HTTP_PERMISSION_DENIED, "Permission denied.");
+        // else send a not found response
         else
             return send_not_found(ta);
     }
@@ -635,12 +644,15 @@ static bool handle_html5_fallback(struct http_transaction *ta, char *basedir) {
     // Determine file size
     struct stat st;
     int rc = stat(fname, &st);
+    // If the file size is not found, return an error message
     if (rc == -1)
         return send_error(ta, HTTP_INTERNAL_ERROR, "Could not stat file.");
 
     int filefd = open(fname, O_RDONLY);
+    // If the file could not be opened, return an error
     if (filefd == -1)
         return send_not_found(ta);
+
 
     ta->resp_status = HTTP_OK;
     http_add_header(&ta->resp_headers, "Content-Type", "%s", guess_mime_type(fname));
@@ -650,6 +662,7 @@ static bool handle_html5_fallback(struct http_transaction *ta, char *basedir) {
     add_content_length(&ta->resp_headers, content_length);
 
     bool success = send_response_header(ta);
+    // If the fallback is not successful transfer to "out"
     if (!success)
         goto out;
 

@@ -2,6 +2,7 @@
     "files.associations": {
         "http.h": "c",
         "bufio.h": "c",
-        "dirent.h": "c"
+        "dirent.h": "c",
+        "cerrno": "c"
     }
 }
