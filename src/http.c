@@ -7,6 +7,8 @@
  *
  * @author G. Back for CS 3214 Spring 2018
  */
+#include "http.h"
+
 #include <dirent.h>
 #include <errno.h>
 #include <fcntl.h>
@@ -22,7 +24,6 @@
 #include <time.h>
 #include <unistd.h>
 
-#include "http.h"
 #include "bufio.h"
 #include "hexdump.h"
 #include "main.h"
@@ -165,7 +166,7 @@ http_process_headers(struct http_transaction *ta) {
                     ta->req_end = atoi(end);
                 else
                     ta->req_end = -1;
-                
+
                 // Set the request range to be true
                 ta->req_range = true;
             }
@@ -385,7 +386,7 @@ handle_static_asset(struct http_transaction *ta, char *basedir) {
         add_content_length(&ta->resp_headers, content_length);
         // Send an Accept-Ranges header
         success = send_response_header(ta);
-        
+
         // If it is not successful, go to "out"
         if (!success)
             goto out;
@@ -399,12 +400,11 @@ handle_static_asset(struct http_transaction *ta, char *basedir) {
         ta->resp_status = HTTP_PARTIAL_CONTENT;
         off_t from, to;
 
-
         if (ta->req_start == -1)
             from = 0;
         else
             from = ta->req_start;
-            
+
         if (ta->req_end == -1)
             from = ta->req_start, to = st.st_size - 1;
         else
@@ -455,7 +455,7 @@ handle_video(struct http_transaction *ta, char *basedir) {
             return send_error(ta, HTTP_INTERNAL_ERROR, "Could not open directory.");
         }
 
-        // While there are files in the directory 
+        // While there are files in the directory
         while ((entry = readdir(dir)) != NULL) {
             // If the name of files contain .mp4
             if (strstr(entry->d_name, ".mp4") != NULL) {
@@ -674,7 +674,6 @@ static bool handle_html5_fallback(struct http_transaction *ta, char *basedir) {
     if (filefd == -1)
         return send_not_found(ta);
 
-
     ta->resp_status = HTTP_OK;
     http_add_header(&ta->resp_headers, "Content-Type", "%s", guess_mime_type(fname));
     off_t from = 0, to = st.st_size - 1;
@@ -702,7 +701,7 @@ static bool validate_token(struct http_transaction *ta) {
     // If the request cookies is NULL, return false
     if (ta->req_cookies == NULL)
         return false;
-    
+
     // Return false if the length of secret massage is not equal to 0
     if (jwt_decode(&mytoken, ta->req_cookies,
                    (unsigned char *)NEVER_EMBED_A_SECRET_IN_CODE,
