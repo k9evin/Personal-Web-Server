@@ -116,7 +116,7 @@ http_process_headers(struct http_transaction *ta) {
             field_value++;
 
         // you may print the header like so
-        // printf("%s: %s\n", field_name, field_value);
+        printf("%s: %s\n", field_name, field_value);
 
         if (!strcasecmp(field_name, "Content-Length")) {
             ta->req_content_len = atoi(field_value);
@@ -145,11 +145,17 @@ http_process_headers(struct http_transaction *ta) {
             char *token;
 
             token = strtok_r(field_value, ": ", &endptr);
+            if (token == NULL)
+                return false;
             strtok_r(token, "=", &endptr);
             if (!strcmp(token, "bytes")) {
                 char *start = strtok_r(NULL, "-", &endptr);
                 char *end = strtok_r(NULL, " ", &endptr);
-                ta->req_start = atoi(start);
+                if (start != NULL)
+                    ta->req_start = atoi(start);
+                else
+                    ta->req_start = -1;
+
                 if (end != NULL)
                     ta->req_end = atoi(end);
                 else
@@ -378,6 +384,11 @@ handle_static_asset(struct http_transaction *ta, char *basedir) {
         ta->resp_status = HTTP_PARTIAL_CONTENT;
         off_t from, to;
 
+        if (ta->req_start == -1)
+            from = 0;
+        else
+            from = ta->req_start;
+            
         if (ta->req_end == -1)
             from = ta->req_start, to = st.st_size - 1;
         else
