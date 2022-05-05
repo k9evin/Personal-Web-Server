@@ -366,19 +366,27 @@ handle_static_asset(struct http_transaction *ta, char *basedir) {
             return handle_html5_fallback(ta, basedir);
         return send_not_found(ta);
     }
-
+    // Support MP4 Streaming
     http_add_header(&ta->resp_headers, "Content-Type", "%s", guess_mime_type(fname));
+    // Add http header for accept-ranges
     http_add_header(&ta->resp_headers, "Accept-Ranges", "bytes");
+    // boolean for testing
     bool success;
 
+    // If the http transition is not a range request
     if (!ta->req_range) {
+        // Set request status to OK
         ta->resp_status = HTTP_OK;
+        // Set from to 0 and "to" to the file size - 1
         off_t from = 0, to = st.st_size - 1;
 
+        // Set content_length
         off_t content_length = to + 1 - from;
         add_content_length(&ta->resp_headers, content_length);
-
+        // Send an Accept-Ranges header
         success = send_response_header(ta);
+        
+        // If it is not successful, go to "out"
         if (!success)
             goto out;
 
@@ -387,8 +395,10 @@ handle_static_asset(struct http_transaction *ta, char *basedir) {
             success = bufio_sendfile(ta->client->bufio, filefd, &from, to + 1 - from) > 0;
 
     } else {
+        // Else set the request status to partial content
         ta->resp_status = HTTP_PARTIAL_CONTENT;
         off_t from, to;
+
 
         if (ta->req_start == -1)
             from = 0;
@@ -434,24 +444,33 @@ handle_video(struct http_transaction *ta, char *basedir) {
     char fname[PATH_MAX];
     char *req_path = bufio_offset2ptr(ta->client->bufio, ta->req_path);
 
+    // If the request path is equal to /api/video
     if (strcmp(req_path, "/api/video") == 0) {
+        // Use the pendir calls to list all files in the server's root directory
         dir = opendir(basedir);
 
         json_t *array = json_array();
+        // Send an internal error message if the directory is NULL
         if (dir == NULL) {
             return send_error(ta, HTTP_INTERNAL_ERROR, "Could not open directory.");
         }
+
+        // While there are files in the directory 
         while ((entry = readdir(dir)) != NULL) {
+            // If the name of files contain .mp4
             if (strstr(entry->d_name, ".mp4") != NULL) {
                 json_t *obj = json_object();
 
                 snprintf(fname, sizeof fname, "%s/%s", basedir, entry->d_name);
 
                 struct stat st;
+                // Determine the size of each .mp4 file
                 int rc = stat(fname, &st);
+                // Return an error message if the size can not be determined
                 if (rc == -1) {
                     return send_error(ta, HTTP_INTERNAL_ERROR, "Could not stat file.");
                 }
+                // Set the size and name of the .mp4 files
                 json_object_set(obj, "size", json_integer(st.st_size));
                 json_object_set(obj, "name", json_string(entry->d_name));
                 json_array_append(array, obj);
@@ -459,12 +478,14 @@ handle_video(struct http_transaction *ta, char *basedir) {
         }
         char *json_str = json_dumps(array, JSON_INDENT(2));
 
+        // Set the response status to OK
         ta->resp_status = HTTP_OK;
         http_add_header(&ta->resp_headers, "Content-Type", "application/json");
         buffer_appends(&ta->resp_body, json_str);
 
         return send_response(ta);
     } else {
+        // Else set the response status to 405 Method Not Allowed
         ta->resp_status = HTTP_METHOD_NOT_ALLOWED;
         send_response(ta);
     }
